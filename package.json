@@ -36,6 +36,12 @@
   ],
   "author": "Rajat Thakur",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rajatdh27/job-retry.git"
+  },
+  "homepage": "https://github.com/rajatdh27/job-retry#readme",
+  "bugs": "https://github.com/rajatdh27/job-retry/issues",
   "engines": {
     "node": ">=16.0.0"
   },
