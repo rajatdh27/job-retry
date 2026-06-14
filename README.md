@@ -1,6 +1,11 @@
 # job-retry
 
-Retry any async function with exponential backoff, per-attempt timeout control, and a dead letter queue so permanently failed jobs are never silently lost.
+[![npm version](https://img.shields.io/npm/v/job-retry.svg)](https://www.npmjs.com/package/job-retry)
+[![npm downloads](https://img.shields.io/npm/dm/job-retry.svg)](https://www.npmjs.com/package/job-retry)
+[![license](https://img.shields.io/npm/l/job-retry.svg)](https://github.com/rajatdh27/job-retry/blob/main/LICENSE)
+[![node](https://img.shields.io/node/v/job-retry.svg)](https://www.npmjs.com/package/job-retry)
+
+> Retry any async function with exponential backoff, per-attempt timeouts, and a dead letter queue — so nothing fails silently in production.
 
 ```ts
 import { JobRetry } from 'job-retry';
@@ -9,6 +14,22 @@ const runner = new JobRetry({ attempts: 5, backoff: 'exponential', baseDelay: 10
 
 const result = await runner.run('sendEmail', () => sendEmail(user));
 ```
+
+---
+
+## Why job-retry?
+
+Most retry libraries just retry. **job-retry goes further:**
+
+| Feature | job-retry | p-retry | async-retry |
+|---|:---:|:---:|:---:|
+| Exponential backoff | ✅ | ✅ | ✅ |
+| Per-attempt timeout | ✅ | ❌ | ❌ |
+| Dead letter queue | ✅ | ❌ | ❌ |
+| Redis DLQ backend | ✅ | ❌ | ❌ |
+| Retry hooks | ✅ | ✅ | ✅ |
+| Zero core dependencies | ✅ | ❌ | ✅ |
+| TypeScript built-in | ✅ | ✅ | ❌ |
 
 ---
 
@@ -32,29 +53,26 @@ npm install ioredis
 import { JobRetry } from 'job-retry';
 
 const runner = new JobRetry({
-  attempts: 5,
-  backoff: 'exponential',
+  attempts: 5,           // try up to 5 times
+  backoff: 'exponential', // wait 1s, 2s, 4s, 8s between attempts
   baseDelay: 1000,
-  timeout: 5000,
-  jitter: true,
-  dlq: 'memory',
-  onRetry: (error, attempt) => console.log(`Attempt ${attempt} failed`, error),
-  onFailure: (job) => console.error('Job permanently failed', job),
-  onSuccess: (result, attempts) => console.log(`Succeeded after ${attempts} tries`),
+  timeout: 5000,         // kill any attempt that hangs > 5s
+  jitter: true,          // spread retries to avoid thundering herd
+  dlq: 'memory',         // save permanently failed jobs here
+
+  onRetry:   (err, attempt) => console.log(`Attempt ${attempt} failed`, err),
+  onFailure: (job)           => console.error('Gave up on job', job),
+  onSuccess: (result, n)     => console.log(`Succeeded after ${n} tries`),
 });
 
-// Run a job — retries automatically on failure
-const result = await runner.run('sendEmail', () => sendEmail(user));
-
-// Inspect the dead letter queue
-const failed = await runner.dlq.getAll();
-
-// Retry a failed job after you've fixed the underlying issue
-await runner.dlq.retry(failed[0].id, runner);
-
-// Remove a single entry or wipe everything
-await runner.dlq.remove(failed[0].id);
-await runner.dlq.clear();
+try {
+  const result = await runner.run('sendEmail', () => sendEmail(user));
+  console.log('Done:', result);
+} catch {
+  // all attempts exhausted — job is now in the DLQ
+  const failed = await runner.dlq.getAll();
+  console.log('Failed jobs:', failed);
+}
 ```
 
 ---
@@ -63,41 +81,84 @@ await runner.dlq.clear();
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `attempts` | `number` | `3` | Maximum attempts before the job is moved to the DLQ |
+| `attempts` | `number` | `3` | Max attempts before moving the job to the DLQ |
 | `backoff` | `'fixed' \| 'linear' \| 'exponential'` | `'exponential'` | Delay strategy between retries |
 | `baseDelay` | `number` | `1000` | Base delay in milliseconds |
-| `timeout` | `number` | none | Per-attempt timeout in ms — hanging attempts throw `TimeoutError` |
-| `jitter` | `boolean` | `false` | Adds random delay (up to 1× baseDelay) to prevent thundering herd |
-| `dlq` | `'memory' \| 'file' \| 'redis' \| DLQBackend` | `'memory'` | Dead letter queue backend |
-| `dlqFilePath` | `string` | `'./job-retry-dlq.json'` | File path for the file backend |
-| `dlqRedisClient` | `Redis` | — | ioredis client instance for the Redis backend |
+| `timeout` | `number` | — | Per-attempt timeout in ms. Hanging attempts are killed automatically |
+| `jitter` | `boolean` | `false` | Randomises delay to prevent multiple jobs retrying at the same instant |
+| `dlq` | `'memory' \| 'file' \| 'redis' \| DLQBackend` | `'memory'` | Where to store permanently failed jobs |
+| `dlqFilePath` | `string` | `'./job-retry-dlq.json'` | File path — only used when `dlq: 'file'` |
+| `dlqRedisClient` | `Redis` | — | ioredis client — only used when `dlq: 'redis'` |
 | `onRetry` | `(error, attempt) => void` | — | Called after each failed attempt except the last |
-| `onFailure` | `(job: DLQEntry) => void` | — | Called when the job is moved to the DLQ |
-| `onSuccess` | `(result, attempts) => void` | — | Called on success when retries were needed |
+| `onFailure` | `(job: DLQEntry) => void` | — | Called when a job is moved to the DLQ |
+| `onSuccess` | `(result, attempts) => void` | — | Called on success when at least one retry was needed |
 
 ---
 
 ## Backoff strategies
 
-**Fixed** — waits `baseDelay` every attempt.
+### Exponential *(recommended)*
+Doubles the wait each attempt. Best for most cases.
+```
+attempt 1 → wait 1s
+attempt 2 → wait 2s
+attempt 3 → wait 4s
+attempt 4 → wait 8s
+```
 
-**Linear** — waits `baseDelay × attempt` (1s, 2s, 3s, …).
+### Linear
+Adds `baseDelay` each attempt.
+```
+attempt 1 → wait 1s
+attempt 2 → wait 2s
+attempt 3 → wait 3s
+```
 
-**Exponential** — waits `baseDelay × 2^(attempt−1)` (1s, 2s, 4s, 8s, …).
+### Fixed
+Same wait every time.
+```
+every attempt → wait 1s
+```
 
-**Jitter** — adds `random(0, delay)` to the computed delay. Prevents multiple jobs from retrying at the exact same instant after a shared outage (thundering herd).
+### Jitter
+Adds `random(0, delay)` on top of any strategy. Prevents multiple jobs from all retrying at the same millisecond after a shared outage.
 
 ---
 
-## Dead letter queue backends
+## Dead letter queue
 
-### Memory (default)
+When a job exhausts all attempts, it's saved to the DLQ with full context — name, error message, timestamp, and attempt count. Nothing is silently dropped.
+
+```ts
+// Inspect what failed
+const failed = await runner.dlq.getAll();
+console.log(failed);
+// [{ id, name, error, timestamp, attempts }]
+
+// Retry a specific job after you've fixed the issue
+await runner.dlq.retry(failed[0].id, runner);
+
+// Remove or clear
+await runner.dlq.remove(failed[0].id);
+await runner.dlq.clear();
+
+// Count
+const count = await runner.dlq.size();
+```
+
+---
+
+## DLQ backends
+
+### Memory *(default)*
 
 ```ts
 new JobRetry({ dlq: 'memory' })
 ```
 
-Stored in an in-process array. Lost on restart. Good for development and testing.
+In-process array. Lost on restart. Perfect for development and testing.
+
+---
 
 ### File
 
@@ -108,72 +169,63 @@ new JobRetry({
 })
 ```
 
-Persisted to a JSON file on disk. Survives restarts. Good for single-server apps.
+Persists to a JSON file. Survives restarts. Good for single-server apps.
 
-### Redis
+---
+
+### Redis *(production)*
 
 ```ts
 import Redis from 'ioredis';
 
 new JobRetry({
   dlq: 'redis',
-  dlqRedisClient: new Redis(),
+  dlqRedisClient: new Redis({ host: 'localhost', port: 6379 }),
 })
 ```
 
-Stored as Redis hashes with a list for ordering. Shared across multiple servers, survives restarts. Production-ready.
+Stored as Redis hashes. Shared across multiple servers, survives restarts. Built for production.
+
+---
 
 ### Custom backend
 
-Implement the `DLQBackend` interface and pass the instance directly:
+Implement the `DLQBackend` interface and pass it directly:
 
 ```ts
-import type { DLQBackend, DLQEntry } from 'job-retry';
+import type { DLQBackend, DLQEntry, JobRetry } from 'job-retry';
 
-class MyDLQ implements DLQBackend {
-  async push(entry: DLQEntry): Promise<void> { /* ... */ }
-  async getAll(): Promise<DLQEntry[]> { /* ... */ }
-  async get(id: string): Promise<DLQEntry | null> { /* ... */ }
-  async retry(id: string, runner: JobRetry): Promise<unknown> { /* ... */ }
-  async remove(id: string): Promise<void> { /* ... */ }
-  async clear(): Promise<void> { /* ... */ }
-  async size(): Promise<number> { /* ... */ }
+class PostgresDLQ implements DLQBackend {
+  async push(entry: DLQEntry)                          { /* INSERT */ }
+  async getAll()                                       { /* SELECT */ }
+  async get(id: string)                                { /* SELECT WHERE id */ }
+  async retry(id: string, runner: JobRetry)            { /* remove + runner.run */ }
+  async remove(id: string)                             { /* DELETE */ }
+  async clear()                                        { /* TRUNCATE */ }
+  async size()                                         { /* COUNT */ }
 }
 
-new JobRetry({ dlq: new MyDLQ() })
+new JobRetry({ dlq: new PostgresDLQ() })
 ```
 
 ---
 
-## DLQ API
-
-| Method | Description |
-|---|---|
-| `dlq.getAll()` | Returns all entries in the queue |
-| `dlq.get(id)` | Returns a single entry by ID, or null |
-| `dlq.retry(id, runner)` | Re-runs the original function and removes the entry on success |
-| `dlq.remove(id)` | Deletes an entry from the queue |
-| `dlq.clear()` | Empties the entire queue |
-| `dlq.size()` | Returns the number of entries |
-
----
-
-## Error types
+## Error handling
 
 ```ts
 import { MaxAttemptsExceededError, TimeoutError } from 'job-retry';
 
 try {
-  await runner.run('job', fn);
+  await runner.run('myJob', fn);
 } catch (err) {
   if (err instanceof MaxAttemptsExceededError) {
     console.log(`Failed after ${err.attempts} attempts`);
-    // err.cause holds the last underlying error
+    console.log('Last error:', err.cause); // the underlying error
   }
 }
 ```
 
-`TimeoutError` is thrown internally when a per-attempt timeout fires. It becomes the `cause` on `MaxAttemptsExceededError`.
+`TimeoutError` is thrown internally when a per-attempt timeout fires. It becomes `err.cause` on `MaxAttemptsExceededError`.
 
 ---
 
@@ -182,11 +234,29 @@ try {
 Full types ship with the package — no `@types/job-retry` needed.
 
 ```ts
-import type { RetryOptions, DLQEntry, DLQBackend, BackoffStrategy } from 'job-retry';
+import type {
+  RetryOptions,
+  DLQEntry,
+  DLQBackend,
+  BackoffStrategy,
+} from 'job-retry';
 ```
+
+---
+
+## DLQ API reference
+
+| Method | Returns | Description |
+|---|---|---|
+| `dlq.getAll()` | `Promise<DLQEntry[]>` | All entries in the queue |
+| `dlq.get(id)` | `Promise<DLQEntry \| null>` | Single entry by ID |
+| `dlq.retry(id, runner)` | `Promise<unknown>` | Re-runs the original fn, removes entry on success |
+| `dlq.remove(id)` | `Promise<void>` | Deletes one entry |
+| `dlq.clear()` | `Promise<void>` | Empties the entire queue |
+| `dlq.size()` | `Promise<number>` | Number of entries |
 
 ---
 
 ## License
 
-MIT
+MIT © [Rajat Thakur](https://github.com/rajatdh27)
