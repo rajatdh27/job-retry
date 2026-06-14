@@ -6,7 +6,7 @@ export class MaxAttemptsExceededError extends Error {
     this.name = 'MaxAttemptsExceededError';
     this.attempts = attempts;
     if (cause instanceof Error) {
-      this.cause = cause;
+      (this as unknown as { cause: Error }).cause = cause;
     }
   }
 }

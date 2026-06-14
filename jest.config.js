@@ -1,6 +1,5 @@
-import type { Config } from 'jest';
-
-const config: Config = {
+/** @type {import('jest').Config} */
+module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   testMatch: ['**/tests/**/*.test.ts'],
@@ -9,5 +8,3 @@ const config: Config = {
     '^ioredis$': '<rootDir>/tests/helpers/mock-redis.ts',
   },
 };
-
-export default config;
