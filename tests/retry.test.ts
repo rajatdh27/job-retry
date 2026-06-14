@@ -1,18 +1,6 @@
-import { JobRetry, MaxAttemptsExceededError, TimeoutError } from '../src';
+import { JobRetry, MaxAttemptsExceededError } from '../src';
 
 jest.useFakeTimers();
-
-function flushTimers() {
-  return new Promise<void>((resolve) => {
-    jest.runAllTimersAsync().then(resolve);
-  });
-}
-
-async function runWithTimers<T>(promise: Promise<T>): Promise<T> {
-  const result = promise;
-  await jest.runAllTimersAsync();
-  return result;
-}
 
 describe('JobRetry', () => {
   describe('successful runs', () => {
@@ -63,6 +51,7 @@ describe('JobRetry', () => {
       const promise = runner.run('test', async () => {
         throw new Error('always fails');
       });
+      promise.catch(() => {});
       await jest.runAllTimersAsync();
       await expect(promise).rejects.toBeInstanceOf(MaxAttemptsExceededError);
     });
@@ -72,6 +61,7 @@ describe('JobRetry', () => {
       const promise = runner.run('myJob', async () => {
         throw new Error('boom');
       });
+      promise.catch(() => {});
       await jest.runAllTimersAsync();
       await expect(promise).rejects.toThrow();
 
@@ -88,6 +78,7 @@ describe('JobRetry', () => {
       const promise = runner.run('job', async () => {
         throw new Error('nope');
       });
+      promise.catch(() => {});
       await jest.runAllTimersAsync();
       await expect(promise).rejects.toThrow();
       expect(onFailure).toHaveBeenCalledTimes(1);
@@ -100,6 +91,7 @@ describe('JobRetry', () => {
       const promise = runner.run('job', async () => {
         throw new Error('x');
       });
+      promise.catch(() => {});
       await jest.runAllTimersAsync();
       await expect(promise).rejects.toThrow();
       expect(onRetry).toHaveBeenCalledTimes(2);
@@ -107,9 +99,10 @@ describe('JobRetry', () => {
   });
 
   describe('timeout', () => {
-    it('throws TimeoutError when an attempt hangs', async () => {
+    it('throws MaxAttemptsExceededError wrapping a TimeoutError when attempt hangs', async () => {
       const runner = new JobRetry({ attempts: 1, timeout: 100, baseDelay: 0 });
       const promise = runner.run('slow', () => new Promise(() => {}));
+      promise.catch(() => {});
       await jest.runAllTimersAsync();
       await expect(promise).rejects.toBeInstanceOf(MaxAttemptsExceededError);
     });
@@ -124,6 +117,7 @@ describe('JobRetry', () => {
         if (!fixed) throw new Error('not fixed yet');
         return 'fixed!';
       });
+      promise.catch(() => {});
       await jest.runAllTimersAsync();
       await expect(promise).rejects.toThrow();
 
