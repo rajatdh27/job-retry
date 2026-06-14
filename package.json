@@ -1,0 +1,50 @@
+{
+  "name": "job-retry",
+  "version": "0.1.0",
+  "description": "Retry async functions with exponential backoff, timeout control, and a dead letter queue",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "jest",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "retry",
+    "backoff",
+    "exponential-backoff",
+    "dead-letter-queue",
+    "dlq",
+    "job",
+    "queue",
+    "timeout",
+    "async"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "ioredis": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ioredis": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
+    "ioredis": "^5.0.0",
+    "ioredis-mock": "^8.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}

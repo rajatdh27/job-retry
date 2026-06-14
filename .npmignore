@@ -1,0 +1,8 @@
+src/
+tests/
+examples/
+.github/
+tsconfig.json
+jest.config.ts
+*.tgz
+coverage/
