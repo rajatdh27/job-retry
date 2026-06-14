@@ -1,6 +1,6 @@
 {
   "name": "job-retry",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Retry async functions with exponential backoff, per-attempt timeout, and a dead letter queue",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -17,7 +17,10 @@
       }
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "test": "jest",
